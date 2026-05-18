@@ -1,0 +1,76 @@
+diff --git a/contrib/nccl_ep/device/low_latency.cu b/contrib/nccl_ep/device/low_latency.cu
+index 64b365e..5bda104 100644
+--- a/contrib/nccl_ep/device/low_latency.cu
++++ b/contrib/nccl_ep/device/low_latency.cu
+@@ -13,6 +13,10 @@
+ #include "nccl_device.h"
+ #include "device_primitives.cuh"
+ 
++// JQ: tune hyper parameters to reduce smem size
++#define NUM_COMBINE_UNROLLS 2
++#define NUM_STAGES 2
++
+ namespace cg = cooperative_groups;
+ 
+ namespace nccl_ep {
+@@ -1453,7 +1457,8 @@ __global__ __launch_bounds__(1024, 1) void combine(// INPUT
+     constexpr int64_t hiddenBf16Int4 = kHidden / kNumElemsPerInt4;
+ 
+     // Use different unroll factors for send and recv phases
+-    constexpr int kNumSendUnrolls = kHidden % (32 * 4 * sizeof(int4) / sizeof(nv_bfloat16)) == 0 ? 4 : 2;
++    // constexpr int kNumSendUnrolls = kHidden % (32 * 4 * sizeof(int4) / sizeof(nv_bfloat16)) == 0 ? 4 : 2;
++    constexpr int kNumSendUnrolls = NUM_COMBINE_UNROLLS; // JQ: reduce smem size, as kCombineMaxUnrolls set to 2
+     constexpr int kNumRecvUnrolls = 2;
+     constexpr int hiddenBf16Int4Pad = align(static_cast<int>(hiddenBf16Int4), 32 * kNumSendUnrolls);
+     EP_STATIC_ASSERT(kHidden % (32 * 2 * sizeof(int4) / sizeof(nv_bfloat16)) == 0, "Invalid hidden");
+@@ -1493,9 +1498,9 @@ __global__ __launch_bounds__(1024, 1) void combine(// INPUT
+ 
+         // TMA stuffs
+         constexpr int kNumTMABufferBytes = sizeof(int4) * 32 * kNumSendUnrolls;
+-        constexpr int kNumStages = 3;
++        constexpr int kNumStages = NUM_STAGES;   // JQ: reduce smem size
+         constexpr int kNumPrefetch = 1;
+-        EP_STATIC_ASSERT(kNumStages == 3 and kNumPrefetch == 1, "Invalid stages");
++        EP_STATIC_ASSERT(kNumStages == NUM_STAGES and kNumPrefetch == 1, "Invalid stages");
+ 
+         auto smemPtr = smemBuffer + warpId * (kNumStages * (kNumTMABufferBytes + 16) + kNumMetaBytes);
+         uint32_t tmaPhase = 0;
+@@ -1662,7 +1667,7 @@ LOW_LATENCY_COMBINE_RECV:
+ 
+ 
+     if (groupIdx < numGroups) {
+-        constexpr int kNumStages = 3;
++        constexpr int kNumStages = NUM_STAGES;  // JQ: reduce smem size
+         constexpr int kNumTMABufferBytes = 16 * 2 + kHidden * 2;
+         constexpr int kNumBF16PerWarpBytes = 32 * kNumRecvUnrolls * kNumElemsPerInt4 * 2;
+         constexpr int kNumLogFMTPerWarpBytes = kNumBF16PerWarpBytes / 16 * 10;
+@@ -1823,7 +1828,7 @@ LOW_LATENCY_COMBINE_RECV:
+ 
+ // Constants for combine kernel template parameters
+ constexpr int kCombineMaxTopk = 9;
+-constexpr int kCombineMaxUnrolls = 4;
++constexpr int kCombineMaxUnrolls = NUM_COMBINE_UNROLLS;  // JQ: reduce smem size
+ 
+ void combine(const void* inData,
+              const int* srcInfo,
+@@ -1875,7 +1880,7 @@ void combine(const void* inData,
+     // Online cast cannot use zero-copy
+     EP_HOST_ASSERT(not (zeroCopy and useLogfmt));
+ 
+-    constexpr int kNumStages = 3;
++    constexpr int kNumStages = NUM_STAGES;   // JQ: reduce smem size
+     constexpr int kMaxNumGroups = 2;
+ 
+     // Send buffer size
+@@ -1890,6 +1895,11 @@ void combine(const void* inData,
+     // Total requirement
+     const int smem_size = max(smemSendSize, smemRecvSize);
+ 
++    // JQ: print smem size, to be remove in production run.
++    if (currRank == 0) {
++    	printf("[JQ] LL combine smem size: %d KB\n", smem_size / 1024);
++    }
++
+     SETUP_LAUNCH_CONFIG(numSms, numWarps * 32, stream);
+ #define COMBINE_LAUNCH_CASE_IMPL(hidden, kLayout) { \
+ if (useLogfmt) { \

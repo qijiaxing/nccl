@@ -2,7 +2,7 @@
 # MODEL_MOUNT="/root/jqi:/jqi/"
 # IMG=nvcr.io/nvidia/pytorch:26.03-py3
 
-WORKDIR=/root/jqi/work/nccl
+WORKDIR=/root/jqi/work/nccl-jqi
 export CUDA_HOME=/usr/local/cuda
 export MPI_HOME=/usr/mpi/gcc/openmpi-4.1.9a1
 export NCCL_HOME=${WORKDIR}/build
@@ -23,9 +23,9 @@ echo TASK: ${TASK}
 
 # Build NCCL-EP
 if [ $TASK == "build" ]; then
-  EXE+="make src.build BUILDDIR=${NCCL_HOME} CUDA_HOME=${CUDA_HOME} NVCC_GENCODE=${NVCC_GENCODE} -j ;"
-  EXE+="make -C contrib/nccl_ep MPI=1 NVCC_GENCODE=${NVCC_GENCODE} -j ;"
-  bash -c "${EXE}"
+  cd ${WORKDIR} ; pwd
+  make src.build BUILDDIR=${NCCL_HOME} CUDA_HOME=${CUDA_HOME} NVCC_GENCODE=${NVCC_GENCODE} -j
+  make -C contrib/nccl_ep MPI=1 NVCC_GENCODE=${NVCC_GENCODE} -j
   exit 0
 fi
 
@@ -40,23 +40,15 @@ fi
 #        -x NCCL_GIN_TYPE \
 #        -x NCCL_CUMEM_ENABLE=1 -x NCCL_WIN_ENABLE=1 \
 if [ $TASK == "bench" ]; then
-  NCCL_EP_JIT_CACHE_DIR="${NCCL_HOME}/.jit-cache/nccl_ep_ll_sm120"
+  export NCCL_EP_JIT_CACHE_DIR="${NCCL_HOME}/.jit-cache/nccl_ep_sm120"
   mkdir -p "$NCCL_EP_JIT_CACHE_DIR"
   mpirun --allow-run-as-root -np 4  \
-	 -x PATH -x LD_LIBRARY_PATH -x CUDA_VISIBLE_DEVICES=0,1,2,3 \
+	 -x PATH -x LD_LIBRARY_PATH -x CUDA_VISIBLE_DEVICES="0,1,2,3" \
          -x RDMAV_FORK_SAFE=1 \
          -x NCCL_EP_JIT_CACHE_DIR \
 	 -x OMPI_ALLOW_RUN_AS_ROOT=1 -x OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
 	 ${NCCL_HOME}/test/nccl_ep/ep_bench \
-	--algorithm ll \
-	--layout em \
-	--tokens 128 \
-	--hidden ${HIDDEN} \
-	--top-k 6 \
-	--experts 256 ${DISALBE_NVLINK} \
-	--warmup 10 -- iters 50 \
-	--use-fp8 \
-        --validate
+	--algorithm ll --tokens 128 --hidden ${HIDDEN} --validate --use-fp8 --top-k 6 --experts 256 ${DISALBE_NVLINK} --warmup 10 --iters 50
 fi
 
 
