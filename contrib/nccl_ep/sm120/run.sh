@@ -15,6 +15,10 @@ unset NCCL_DEBUG NCCL_DEBUG_SUBSYS NCCL_DEBUG_FILE NCCL_EP_JIT_LOG NCCL_EP_TRACE
 
 export HIDDEN=4096
 export EXPERT=256
+export GPUS=4
+# export CUDA_VISIBLE_DEVICES="0,2,4,6"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export NCCL_DEBUG=WARN
 
 EXE="cd ${WORKDIR} ; pwd ;"
 
@@ -30,55 +34,34 @@ if [ $TASK == "build" ]; then
 fi
 
 
-# DISALBE_NVLINK="--disable-nvlink"
-#       --profile \
-#       --user-handle-mem  \
-#        -x NCCL_LSA_TEAM_SIZE \
-#        -x NCCL_P2P_DISABLE -x NCCL_SHM_DISABLE \
-#        -x NCCL_IB_HCA \
-#        -x NCCL_IB_GID_INDEX \
-#        -x NCCL_GIN_TYPE \
-#        -x NCCL_CUMEM_ENABLE=1 -x NCCL_WIN_ENABLE=1 \
+# Run Benchmark
 if [ $TASK == "bench" ]; then
   export NCCL_EP_JIT_CACHE_DIR="${NCCL_HOME}/.jit-cache/nccl_ep_sm120"
   mkdir -p "$NCCL_EP_JIT_CACHE_DIR"
-  mpirun --allow-run-as-root -np 4  \
-	 -x PATH -x LD_LIBRARY_PATH -x CUDA_VISIBLE_DEVICES="0,1,2,3" \
-         -x RDMAV_FORK_SAFE=1 \
+
+  read -p "NIC Only (1 for yes, 0 for no): " NIC
+  NIC_ONLY=""
+  if [ ${NIC} == "1" ]; then
+  	export NIC_ONLY="-x NCCL_LSA_TEAM_SIZE=2 -x NCCL_P2P_DISABLE=1 -x NCCL_SHM_DISABLE=1 -x NCCL_IB_HCA=mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1"
+	echo Use NIC only, setting NIC_ONLY=${NIC_ONLY}
+  fi
+
+  read -p "Algorithm (1 for HT, others for LL): " INPUT
+  AL=ll
+  TOKENS=128
+  if [ ${INPUT} == "1" ]; then
+	  AL=ht
+	  TOKENS=4096
+  fi
+
+  mpirun --allow-run-as-root -np ${GPUS}  \
+	 -x PATH -x LD_LIBRARY_PATH -x CUDA_VISIBLE_DEVICES \
+         -x RDMAV_FORK_SAFE=1 ${NIC_ONLY} \
+	 -x NCCL_DEBUG \
+	 -x NCCL_GIN_TYPE=3 -x NCCL_IB_GID_INDEX=3 \
+	 -x NCCL_CUMEM_ENABLE=1 -x NCCL_WIN_ENABLE=1 \
          -x NCCL_EP_JIT_CACHE_DIR \
 	 -x OMPI_ALLOW_RUN_AS_ROOT=1 -x OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
 	 ${NCCL_HOME}/test/nccl_ep/ep_bench \
-	--algorithm ll --tokens 128 --hidden ${HIDDEN} --validate --use-fp8 --top-k 6 --experts 256 ${DISALBE_NVLINK} --warmup 10 --iters 50
+	--algorithm ${AL} --tokens ${TOKENS} --hidden ${HIDDEN} --validate --use-fp8 --top-k 6 --experts 256 ${DISALBE_NVLINK} --warmup 10 --iters 50
 fi
-
-
-#   -e CUDA_VISIBLE_DEVICES="4,5,6,7" \
-# docker run \
-#     -it \
-#     --rm \
-#     --gpus all \
-#     --device=/dev/infiniband \
-#     --device=/dev/gdrdrv:/dev/gdrdrv \
-#     --ipc host \
-#     --network host \
-#     --name nccl-ep \
-#     --shm-size 32G \
-#     --ulimit memlock=-1 \
-#     -e CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-#     -e NCCL_IB_HCA=mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1,mlx5_4:1,mlx5_5:1,mlx5_6:1,mlx5_7:1 \
-#     -e NCCL_IB_GID_INDEX=-1 \
-#     -e NCCL_GIN_TYPE=3 \
-#     -e NCCL_LSA_TEAM_SIZE=1 \
-#     -e NCCL_P2P_DISABLE=1 \
-#     -e NCCL_SHM_DISABLE=1 \
-#     -e NCCL_CUMEM_ENABLE=1 \
-#     -e NCCL_WIN_ENABLE=1 \
-#     -e RDMAV_FORK_SAFE=1 \
-#     -e MPI_HOME=/usr/local/mpi \
-#     -e LD_LIBRARY_PATH="${CUDA_HOME}/lib:${CUDA_HOME}/lib64:${CUDA_HOME}/extras/CUPTI/lib64:${NCCL_HOME}/lib:$LD_LIBRARY_PATH" \
-#     -e PATH="${CUDA_HOME}/bin:${NCCL_HOME}/bin:${MPI_HOME}/bin:$PATH" \
-#     -e OMPI_ALLOW_RUN_AS_ROOT=1 \
-#     -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
-#     -v ${MODEL_MOUNT} \
-#     ${IMG} \
-#     bash -c "${EXE}"
