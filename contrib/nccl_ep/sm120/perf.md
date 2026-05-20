@@ -4,6 +4,29 @@
 
 ##  6kd, 4 GPUS, dispatch fp8
 
+Kernel-only Performance
+
+| GPUs | Config               | Dispatch (GB/s) | Combine (GB/s) |
+| ---- | -------------        | --------------- | -------------- |
+| 8    | None                 |  18.66          | 33.07 |
+| 8    | LSA=1, p2p disabled  |  15.12          | 23.15 |
+| 4    | None                 |  41.90          | 57.95 |
+| 4    | LSA=2, p2p disabled, use GPUs=0,2,4,6  |  26.83 | 37.58 |
+| 4    | use GPUs=0,2,4,6  |  30.59 | 38.08 |
+
+
+```
+Config:
+* GPUs = 8
+* p2p = True
+
+--- Kernel-only performance ---
+Dispatch:    avg=172.43 us, min=169.16 us, max=174.41 us
+                  throughput: avg=18.66 GB/s, min=19.02 GB/s, max=18.45 GB/s
+Combine:     avg=188.02 us, min=184.43 us, max=192.69 us
+                  throughput: avg=33.07 GB/s, min=33.71 GB/s, max=32.27 GB/s
+```
+
 ```
 === Summary (Low Latency, across 4 ranks) ===
 
