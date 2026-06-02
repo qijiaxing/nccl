@@ -1,0 +1,52 @@
+diff --git a/contrib/nccl_ep/device/low_latency.cu b/contrib/nccl_ep/device/low_latency.cu
+index 20fde4b..395c018 100644
+--- a/contrib/nccl_ep/device/low_latency.cu
++++ b/contrib/nccl_ep/device/low_latency.cu
+@@ -1579,7 +1579,7 @@ __global__ __launch_bounds__(1024, 1) void combine(// INPUT
+     constexpr int64_t hiddenBf16Int4 = kHidden / kNumElemsPerInt4;
+ 
+     // Use different unroll factors for send and recv phases
+-    constexpr int kNumSendUnrolls = kHidden % (32 * 4 * sizeof(int4) / sizeof(nv_bfloat16)) == 0 ? 4 : 2;
++    constexpr int kNumSendUnrolls = 2;
+     constexpr int kNumRecvUnrolls = 2;
+     constexpr int hiddenBf16Int4Pad = align(static_cast<int>(hiddenBf16Int4), 32 * kNumSendUnrolls);
+     EP_STATIC_ASSERT(kHidden % (32 * 2 * sizeof(int4) / sizeof(nv_bfloat16)) == 0, "Invalid hidden");
+@@ -1619,9 +1619,9 @@ __global__ __launch_bounds__(1024, 1) void combine(// INPUT
+ 
+         // TMA stuffs
+         constexpr int kNumTMABufferBytes = sizeof(int4) * 32 * kNumSendUnrolls;
+-        constexpr int kNumStages = 3;
++        constexpr int kNumStages = 2;
+         constexpr int kNumPrefetch = 1;
+-        EP_STATIC_ASSERT(kNumStages == 3 and kNumPrefetch == 1, "Invalid stages");
++        EP_STATIC_ASSERT(kNumStages >= 2 and kNumPrefetch == 1, "Invalid stages");
+ 
+         auto smemPtr = smemBuffer + warpId * (kNumStages * (kNumTMABufferBytes + 16) + kNumMetaBytes);
+         uint32_t tmaPhase = 0;
+@@ -1788,7 +1788,7 @@ LOW_LATENCY_COMBINE_RECV:
+ 
+ 
+     if (groupIdx < numGroups) {
+-        constexpr int kNumStages = 3;
++        constexpr int kNumStages = 2;
+         constexpr int kNumTMABufferBytes = 16 * 2 + kHidden * 2;
+         constexpr int kNumBF16PerWarpBytes = 32 * kNumRecvUnrolls * kNumElemsPerInt4 * 2;
+         constexpr int kNumLogFMTPerWarpBytes = kNumBF16PerWarpBytes / 16 * 10;
+@@ -1949,7 +1949,7 @@ LOW_LATENCY_COMBINE_RECV:
+ 
+ // Constants for combine kernel template parameters
+ constexpr int kCombineMaxTopk = 9;
+-constexpr int kCombineMaxUnrolls = 4;
++constexpr int kCombineMaxUnrolls = 2;
+ 
+ void combine(const void* inData,
+              const int* srcInfo,
+@@ -2004,7 +2004,7 @@ void combine(const void* inData,
+     // Online cast cannot use zero-copy
+     EP_HOST_ASSERT(not (zeroCopy and useLogfmt));
+ 
+-    constexpr int kNumStages = 3;
++    constexpr int kNumStages = 2;
+     constexpr int kMaxNumGroups = 2;
+ 
+     // Send buffer size
